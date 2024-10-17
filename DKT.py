@@ -47,19 +47,27 @@ if data:
     with st.expander("Données brutes"):
         st.dataframe(df_kobo)
 
-    # Transformation des colonnes GPI et Sondage
+    # Transformation des colonnes GPI et Sondage (si elles existent)
     for col in ['GPI', 'Sondage']:
         if col in df_kobo.columns:
-            df_kobo[f'{col}_Transformed'] = df_kobo[col].apply(lambda x: ', '.join([str(obj) for obj in x]) if isinstance(x, list) else x)
+            df_kobo[f'{col}_Transformed'] = df_kobo[col].apply(
+                lambda x: ', '.join([str(obj) for obj in x]) if isinstance(x, list) else x
+            )
             df_kobo.drop(columns=[col], inplace=True)
 
-    # Traitement des données GPS
+    # Traitement des données GPS (si la colonne existe et n'est pas vide)
     if 'GPS' in df_kobo.columns and df_kobo['GPS'].notna().any():
         gps_split = df_kobo['GPS'].str.split(' ', expand=True)
-        df_kobo[['Latitude', 'Longitude', 'Altitude', 'Other']] = gps_split.apply(pd.to_numeric, errors='coerce')
+        if len(gps_split.columns) >= 4:
+            df_kobo[['Latitude', 'Longitude', 'Altitude', 'Other']] = gps_split.apply(pd.to_numeric, errors='coerce')
+        else:
+            st.warning("Les données GPS ne sont pas au bon format.")
 
     # Conversion de la colonne de soumission en datetime
-    df_kobo["_submission_time"] = pd.to_datetime(df_kobo["_submission_time"])
+    if '_submission_time' in df_kobo.columns:
+        df_kobo["_submission_time"] = pd.to_datetime(df_kobo["_submission_time"])
+    else:
+        st.error("La colonne '_submission_time' est manquante.")
 
     # Filtrage par date
     date1 = st.sidebar.date_input("Choisissez une date de début")
@@ -73,10 +81,10 @@ if data:
     # Filtres supplémentaires
     st.sidebar.header("Filtres supplémentaires :")
     filters = {
-        "Identification/Province": st.sidebar.multiselect("Province", sorted(df_filtered["Identification/Province"].unique())),
-        "Identification/Commune": st.sidebar.multiselect("Commune", sorted(df_filtered["Identification/Commune"].unique())),
-        "Identification/Adresse_PDV": st.sidebar.multiselect("Avenue", sorted(df_filtered["Identification/Adresse_PDV"].unique())),
-        "Name_Agent": st.sidebar.multiselect("Agent", sorted(df_filtered["Name_Agent"].unique()))
+        "Identification/Province": st.sidebar.multiselect("Province", sorted(df_filtered["Identification/Province"].dropna().unique())) if 'Identification/Province' in df_filtered.columns else [],
+        "Identification/Commune": st.sidebar.multiselect("Commune", sorted(df_filtered["Identification/Commune"].dropna().unique())) if 'Identification/Commune' in df_filtered.columns else [],
+        "Identification/Adresse_PDV": st.sidebar.multiselect("Avenue", sorted(df_filtered["Identification/Adresse_PDV"].dropna().unique())) if 'Identification/Adresse_PDV' in df_filtered.columns else [],
+        "Name_Agent": st.sidebar.multiselect("Agent", sorted(df_filtered["Name_Agent"].dropna().unique())) if 'Name_Agent' in df_filtered.columns else []
     }
 
     for col, selection in filters.items():
@@ -116,21 +124,24 @@ if data:
     )
 
     # Affichage de la carte
-    if not df_filtered[['Latitude', 'Longitude']].isna().all().any():
-        df_filtered = df_filtered.dropna(subset=['Latitude', 'Longitude'])
-        map_center = [df_filtered['Latitude'].mean(), df_filtered['Longitude'].mean()]
-        map_folium = folium.Map(location=map_center, zoom_start=12)
-        marker_cluster = MarkerCluster().add_to(map_folium)
+    if 'Latitude' in df_filtered.columns and 'Longitude' in df_filtered.columns:
+        if not df_filtered[['Latitude', 'Longitude']].isna().all().any():
+            df_filtered = df_filtered.dropna(subset=['Latitude', 'Longitude'])
+            map_center = [df_filtered['Latitude'].mean(), df_filtered['Longitude'].mean()]
+            map_folium = folium.Map(location=map_center, zoom_start=12)
+            marker_cluster = MarkerCluster().add_to(map_folium)
 
-        for _, row in df_filtered.iterrows():
-            folium.Marker(
-                location=[row['Latitude'], row['Longitude']],
-                popup=f"Agent: {row['Identification/Name_PDV']}"
-            ).add_to(marker_cluster)
+            for _, row in df_filtered.iterrows():
+                folium.Marker(
+                    location=[row['Latitude'], row['Longitude']],
+                    popup=f"Agent: {row['Identification/Name_PDV']}" if 'Identification/Name_PDV' in row else "Agent"
+                ).add_to(marker_cluster)
 
-        folium_static(map_folium)
+            folium_static(map_folium)
+        else:
+            st.warning("Pas de données GPS valides pour afficher la carte.")
     else:
-        st.warning("Pas de données GPS valides pour afficher la carte.")
+        st.warning("Les colonnes 'Latitude' et 'Longitude' sont manquantes.")
 
     # Graphiques
     col1, col2 = st.columns(2)
@@ -147,7 +158,9 @@ if data:
         if 'Name_Agent' in df_filtered.columns:
             st.subheader("Histogramme des agents")
             
+            # Vérification que df_filtered n'est pas vide
             if not df_filtered.empty:
+                # Utilisation correcte des colonnes pour l'histogramme
                 bar_chart_data = df_filtered['Name_Agent'].value_counts()
                 if not bar_chart_data.empty:
                     fig = px.bar(
