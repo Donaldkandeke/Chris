@@ -54,7 +54,7 @@ if data:
             df_kobo.drop(columns=[col], inplace=True)
 
     # Traitement des données GPS
-    if 'GPS' in df_kobo.columns:
+    if 'GPS' in df_kobo.columns and df_kobo['GPS'].notna().any():
         gps_split = df_kobo['GPS'].str.split(' ', expand=True)
         df_kobo[['Latitude', 'Longitude', 'Altitude', 'Other']] = gps_split.apply(pd.to_numeric, errors='coerce')
 
@@ -147,9 +147,7 @@ if data:
         if 'Name_Agent' in df_filtered.columns:
             st.subheader("Histogramme des agents")
             
-            # Vérification que df_filtered n'est pas vide
             if not df_filtered.empty:
-                # Utilisation correcte des colonnes pour l'histogramme
                 bar_chart_data = df_filtered['Name_Agent'].value_counts()
                 if not bar_chart_data.empty:
                     fig = px.bar(
